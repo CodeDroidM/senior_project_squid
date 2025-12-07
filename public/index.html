@@ -1,0 +1,211 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SQUID Agent Message Tester</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #f3f5f8;
+      margin: 2rem auto;
+      max-width: 800px;
+      color: #222;
+    }
+    h1 {
+      color: #003366;
+      text-align: center;
+    }
+    #status {
+      text-align: center;
+      font-weight: bold;
+      margin: 1rem 0;
+      padding: 0.5rem;
+      border-radius: 6px;
+      display: inline-block;
+    }
+    .status-connected {
+      background: #e0ffe0;
+      color: #007700;
+      border: 1px solid #00aa00;
+    }
+    .status-disconnected {
+      background: #ffeaea;
+      color: #aa0000;
+      border: 1px solid #cc0000;
+    }
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    button {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:disabled {
+      background: #ccc !important;
+      cursor: not-allowed;
+    }
+    #connectBtn { background: #0066cc; color: white; }
+    #connectBtn:hover { background: #004c99; }
+    #disconnectBtn { background: #999; color: white; }
+    #disconnectBtn:hover { background: #666; }
+    #sendBtn { background: #009933; color: white; }
+    #sendBtn:hover { background: #007a26; }
+
+    label {
+      font-weight: bold;
+      display: block;
+      margin-top: 1rem;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    pre {
+      background: #111;
+      color: #00ff90;
+      padding: 1rem;
+      border-radius: 6px;
+      overflow-y: auto;
+      max-height: 300px;
+      font-size: 13px;
+    }
+    
+    .logo-container {
+	  text-align: center;
+	  margin-bottom: 1rem;
+	}
+
+	.squid-logo {
+	  width: 160px;
+	  height: auto;
+	  border-radius: 12px;
+	  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+	}
+
+  </style>
+</head>
+<body>
+
+	<div class="logo-container">
+	  <img src="squid.png" alt="SQUID SQL-UID Logo" class="squid-logo" />
+	  <h1>SQUID Agent Message Tester</h1>
+	</div>
+
+ 
+  
+  <div style="text-align:center;">
+    <span id="status" class="status-disconnected">Status: Disconnected</span>
+  </div>
+
+  <div class="controls">
+    <button id="connectBtn" onclick="connectAgent()">Connect Agent</button>
+    <button id="disconnectBtn" onclick="disconnectAgent()" disabled>Disconnect Agent</button>
+  </div>
+
+  <label for="message">Enter Agent Command:</label>
+  <input id="message" type="text" placeholder="e.g. validate.password.dbsrc.user.<username>.<password>" />
+
+  <div style="text-align:right;">
+    <button id="sendBtn" onclick="sendAgentMessage()" disabled>Send Message</button>
+  </div>
+
+  <h2>Response Log</h2>
+  <pre id="responseOutput">{ waiting for connection... }</pre>
+
+  <script>
+    let connected = false;
+
+    function setStatus(isConnected) {
+      connected = isConnected;
+      const status = document.getElementById('status');
+      const connectBtn = document.getElementById('connectBtn');
+      const disconnectBtn = document.getElementById('disconnectBtn');
+      const sendBtn = document.getElementById('sendBtn');
+
+      if (isConnected) {
+        status.textContent = "Status: Connected";
+        status.className = "status-connected";
+        connectBtn.disabled = true;
+        disconnectBtn.disabled = false;
+        sendBtn.disabled = false;
+      } else {
+        status.textContent = "Status: Disconnected";
+        status.className = "status-disconnected";
+        connectBtn.disabled = false;
+        disconnectBtn.disabled = true;
+        sendBtn.disabled = true;
+      }
+    }
+
+   // Replace existing ones in <script> section
+
+async function connectAgent() {
+  logMessage("Connecting directly to agent...");
+  try {
+    const res = await fetch("/api/connectAgent", { method: "POST" });
+    const data = await res.json();
+    logMessage(data);
+    if (data.err_code === "0") setStatus(true);
+    else setStatus(false);
+  } catch (err) {
+    logMessage("Connection error: " + err.message);
+  }
+}
+
+async function disconnectAgent() {
+  logMessage("Disconnecting agent...");
+  try {
+    const res = await fetch("/api/disconnectAgent", { method: "POST" });
+    const data = await res.json();
+    logMessage(data);
+    setStatus(false);
+  } catch (err) {
+    logMessage("Disconnect error: " + err.message);
+  }
+}
+
+
+    async function sendAgentMessage() {
+      if (!connected) {
+        alert("You must connect to the agent first!");
+        return;
+      }
+      const msg = document.getElementById("message").value.trim();
+      if (!msg) {
+        alert("Please enter a command.");
+        return;
+      }
+      logMessage("> Sending: " + msg);
+      try {
+        const res = await fetch("/api/agentMessage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: msg })
+        });
+        const data = await res.json();
+        logMessage(data);
+      } catch (err) {
+        logMessage("Message send error: " + err.message);
+      }
+    }
+
+    function logMessage(msg) {
+      const output = document.getElementById("responseOutput");
+      const now = new Date().toLocaleTimeString();
+      let text = typeof msg === "object" ? JSON.stringify(msg, null, 2) : msg;
+      output.textContent += `\n[${now}] ${text}`;
+      output.scrollTop = output.scrollHeight;
+    }
+  </script>
+</body>
+</html>

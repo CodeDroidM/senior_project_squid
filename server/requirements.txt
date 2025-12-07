@@ -1,0 +1,9 @@
+SQLAlchemy>=1.4
+# Optional (uncomment if you want pretty tables):
+# prettytable>=3.6
+fastapi
+uvicorn[standard]
+pydantic
+requests
+PyJWT
+python-dotenv>=1.0.0

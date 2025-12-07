@@ -1,0 +1,50 @@
+services:
+  # Backend service
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: squid_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DBSRC_AGENT_HOST=www.compute-mertjiandata.com
+      - DBSRC_AGENT_PORT=9000
+      - DBSRC_USERNAME=ivan
+      - DBSRC_USER_PASSWORD=Rc3e4745c$4
+      - DBSRC_ACCP_ID=345
+      - DBSRC_CLIENT_HOST=127.0.0.1
+    volumes:
+      - ./server:/app
+    working_dir: /app
+    networks:
+      - squid_network
+    restart: unless-stopped
+
+  # Frontend service (commented out - uncomment when ready to use)
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile
+  #   container_name: squid_frontend
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - REACT_APP_API_URL=http://localhost:8000
+  #     - NODE_ENV=development
+  #   volumes:
+  #     - ./frontend/src:/app/src
+  #     - ./frontend/public:/app/public
+  #     - /app/node_modules
+  #   working_dir: /app
+  #   command: yarn start
+  #   networks:
+  #     - squid_network
+  #   depends_on:
+  #     - backend
+  #   restart: unless-stopped
+
+networks:
+  squid_network:
+    driver: bridge

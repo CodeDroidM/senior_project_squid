@@ -1,0 +1,22 @@
+So just to get this straight. Until now one password for the agent and for the user was working fine. 
+ I haven't had to change the user password yet. 
+
+Currently what i have is 
+
+1.Frontend calls POST /connect with: username, password, accp_id, agent_host/port, agent_password, client_host. default from .env.
+2.Backend opens a persistent socket to the DbSrc Agent and runs three steps:
+agent.connect using the agent password  -> establishes the socket.
+validate.password.dbsrc.user.{username}.{password} -> returns a token for the user.
+connect.accp.{schema_id}.{token}.{username}.{client_host} -> binds the token to the ACCP schema session.
+
+Query execution (after login)
+
+Frontend calls POST /query with { sql }.
+Backend uses the same open socket and sends sql.[<query>] to the agent.
+The agent’s respons.
+ Backend:
+Parses/normalizes data into an array.
+Only one query runs at a time via on the single socket connection.
+
+
+
