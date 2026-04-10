@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Table,
@@ -7,16 +7,26 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
   Typography,
-  Alert,
 } from '@mui/material';
+import ChartSuggestions from './charts/ChartSuggestions';
+
+const CELL_SX = {
+  fontSize: 12,
+  fontFamily: '"Cascadia Code","Fira Code",Consolas,monospace',
+  py: '3px', px: '10px',
+  borderBottom: '1px solid #2a2d2e',
+  color: '#cccccc',
+  whiteSpace: 'nowrap',
+};
 
 const ResultsTable = ({ queryResult }) => {
+  const [viewMode, setViewMode] = useState('table');
+
   if (!queryResult) {
     return (
       <Box sx={{ p: 3, textAlign: 'center' }}>
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" sx={{ color: '#858585', fontSize: 12 }}>
           Execute a query to see results here
         </Typography>
       </Box>
@@ -26,21 +36,16 @@ const ResultsTable = ({ queryResult }) => {
   if (queryResult.err_code !== '0') {
     return (
       <Box sx={{ p: 2 }}>
-        <Alert severity="error">
-          <Typography variant="body2">
-            <strong>Error:</strong> {queryResult.err_msg || 'Query execution failed'}
+        <Box sx={{ bgcolor: '#3b1212', border: '1px solid #5a1d1d', borderRadius: 0.5, p: 1.5 }}>
+          <Typography sx={{ color: '#f48771', fontSize: 12, fontFamily: 'monospace' }}>
+            ✗ {queryResult.err_msg || 'Query execution failed'}
           </Typography>
-          {queryResult.details && queryResult.details.suggestion && (
-            <Typography variant="body2" sx={{ mt: 1, fontStyle: 'italic' }}>
+          {queryResult.details?.suggestion && (
+            <Typography sx={{ color: '#858585', fontSize: 11, mt: 0.5 }}>
               💡 {queryResult.details.suggestion}
             </Typography>
           )}
-          {queryResult.details && queryResult.details.raw_length && (
-            <Typography variant="caption" sx={{ mt: 1, display: 'block', color: 'text.secondary' }}>
-              Received {queryResult.details.raw_length} bytes from server
-            </Typography>
-          )}
-        </Alert>
+        </Box>
       </Box>
     );
   }
@@ -48,18 +53,12 @@ const ResultsTable = ({ queryResult }) => {
   const data = queryResult.data || [];
   const columns = queryResult.columns || [];
 
-  // Ensure data is an array
   if (!Array.isArray(data)) {
     return (
-      <Box sx={{ p: 3, textAlign: 'center' }}>
-        <Alert severity="warning">
-          <Typography variant="body2">
-            Invalid data format received from server
-          </Typography>
-          <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
-            Expected array, got {typeof data}
-          </Typography>
-        </Alert>
+      <Box sx={{ p: 2 }}>
+        <Typography sx={{ color: '#e9c46a', fontSize: 12 }}>
+          ⚠ Invalid data format received from server (got {typeof data})
+        </Typography>
       </Box>
     );
   }
@@ -67,60 +66,64 @@ const ResultsTable = ({ queryResult }) => {
   if (data.length === 0) {
     return (
       <Box sx={{ p: 3, textAlign: 'center' }}>
-        <Alert severity="info">No results returned</Alert>
+        <Typography sx={{ color: '#858585', fontSize: 12 }}>No results returned</Typography>
       </Box>
     );
   }
 
   return (
-    <TableContainer component={Paper} elevation={0} sx={{ height: '100%', overflow: 'auto' }}>
-      <Table stickyHeader size="small" sx={{ minWidth: 650 }}>
-        <TableHead>
-          <TableRow>
-            {columns.map((col, index) => (
-              <TableCell
-                key={index}
-                sx={{
-                  fontWeight: 600,
-                  bgcolor: '#f5f5f5',
-                  borderBottom: 2,
-                  borderColor: 'divider',
-                  fontSize: '0.8rem',
-                }}
-              >
-                {col}
-              </TableCell>
-            ))}
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {data.map((row, rowIndex) => (
-            <TableRow
-              key={rowIndex}
-              sx={{
-                '&:nth-of-type(odd)': {
-                  bgcolor: 'action.hover',
-                },
-                '&:hover': {
-                  bgcolor: 'action.selected',
-                },
-              }}
-            >
-              {columns.map((col, colIndex) => (
-                <TableCell key={colIndex} sx={{ fontSize: '0.75rem' }}>
-                  {row[col] !== null && row[col] !== undefined ? String(row[col]) : ''}
-                </TableCell>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#1e1e1e' }}>
+      <ChartSuggestions
+        data={data}
+        columns={columns}
+        sql={queryResult.executedSql || queryResult.sql}
+        serverSuggestions={queryResult.chart_suggestions}
+        onViewChange={setViewMode}
+      />
+
+      {viewMode === 'table' && (
+        <TableContainer sx={{ flex: 1, overflow: 'auto' }}>
+          <Table stickyHeader size="small" sx={{ minWidth: 400, borderCollapse: 'collapse' }}>
+            <TableHead>
+              <TableRow>
+                {columns.map((col, i) => (
+                  <TableCell key={i} sx={{
+                    ...CELL_SX,
+                    fontWeight: 600, color: '#9cdcfe',
+                    bgcolor: '#252526',
+                    borderBottom: '2px solid #3c3c3c',
+                    position: 'sticky', top: 0, zIndex: 1,
+                  }}>
+                    {col}
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {data.map((row, ri) => (
+                <TableRow key={ri} sx={{
+                  bgcolor: ri % 2 === 0 ? '#1e1e1e' : '#252526',
+                  '&:hover': { bgcolor: '#2a2d2e' },
+                }}>
+                  {columns.map((col, ci) => (
+                    <TableCell key={ci} sx={CELL_SX}>
+                      {row[col] !== null && row[col] !== undefined ? String(row[col]) : (
+                        <span style={{ color: '#555', fontStyle: 'italic' }}>NULL</span>
+                      )}
+                    </TableCell>
+                  ))}
+                </TableRow>
               ))}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-      <Box sx={{ p: 1, bgcolor: '#f5f5f5', borderTop: 1, borderColor: 'divider' }}>
-        <Typography variant="caption" color="text.secondary">
-          {data.length} row{data.length !== 1 ? 's' : ''} returned
-        </Typography>
-      </Box>
-    </TableContainer>
+            </TableBody>
+          </Table>
+          <Box sx={{ px: 1.5, py: 0.5, bgcolor: '#252526', borderTop: '1px solid #3c3c3c' }}>
+            <Typography sx={{ color: '#858585', fontSize: 11 }}>
+              {data.length} row{data.length !== 1 ? 's' : ''}
+            </Typography>
+          </Box>
+        </TableContainer>
+      )}
+    </Box>
   );
 };
 

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   Box,
   Tabs,
@@ -8,55 +8,56 @@ import {
   Tooltip,
   Menu,
   MenuItem,
+  Divider,
+  Paper,
+  ClickAwayListener,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import {
   CloseOutlined as CloseIcon,
   AddOutlined as AddIcon,
   Code as CodeIcon,
-  DragIndicator as DragIcon,
+  History as HistoryIcon,
 } from '@mui/icons-material';
 import CodeMirror from '@uiw/react-codemirror';
 import { sql } from '@codemirror/lang-sql';
 import { EditorView } from '@codemirror/view';
 
-const StyledTab = styled(Tab)(({ theme }) => ({
-  color: '#000',
+const StyledTab = styled(Tab)(() => ({
+  color: '#858585',
   textTransform: 'none',
   minWidth: 'auto',
-  padding: '4px 12px',
-  minHeight: 32,
-  fontSize: '0.75rem',
-  fontWeight: 500,
+  maxWidth: 180,
+  padding: '0 12px',
+  minHeight: 35,
+  fontSize: '0.8rem',
+  fontWeight: 400,
+  borderRight: '1px solid #3c3c3c',
   position: 'relative',
-  zIndex: 2,
-  marginTop: 15,
   '&.Mui-selected': {
-    color: '#000',
-    backgroundColor: '#FFEB3B',
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    borderBottom: '1px solid #FFEB3B',
+    color: '#d4d4d4',
+    backgroundColor: '#1e1e1e',
+    borderTop: '1px solid #9c6fde',
   },
-  '&:hover:not(.Mui-selected)': { textDecoration: 'underline' },
-  '&.Mui-selected:hover': {
-    backgroundColor: '#FFEB3B',
-    textDecoration: 'none',
+  '&:hover:not(.Mui-selected)': {
+    color: '#cccccc',
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
   '&.Mui-focusVisible, &:focus': { boxShadow: 'none', outline: 'none' },
 }));
 
-const TabContainer = styled(Box)(({ theme }) => ({
-  borderBottom: `1px solid ${theme.palette.divider}`,
-  backgroundColor: theme.palette.background.default,
+const TabContainer = styled(Box)(() => ({
+  borderBottom: '1px solid #3c3c3c',
+  backgroundColor: '#252526',
   display: 'flex',
   alignItems: 'center',
-  minHeight: 48,
-  paddingLeft: theme.spacing(1),
-  paddingRight: theme.spacing(1),
+  minHeight: 35,
+  paddingLeft: 0,
+  paddingRight: 4,
+  overflow: 'hidden',
 }));
 
-const TabbedSqlEditor = ({ query, setQuery, onExecuteQuery, queryResult, loading }) => {
+const TabbedSqlEditor = ({ query, setQuery, onExecuteQuery, queryResult, loading, accpId }) => {
   const [activeTab, setActiveTab] = useState(0);
   const [tabs, setTabs] = useState([
     {
@@ -72,6 +73,21 @@ const TabbedSqlEditor = ({ query, setQuery, onExecuteQuery, queryResult, loading
   const [dragOverTab, setDragOverTab] = useState(null);
   const nextTabIdRef = useRef(2);
 
+  // ── Query history ──
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState([]);
+
+  const loadHistory = useCallback(() => {
+    const key = `squid_queries_${accpId || 'default'}`;
+    try {
+      setHistory(JSON.parse(localStorage.getItem(key) || '[]'));
+    } catch (_) { setHistory([]); }
+  }, [accpId]);
+
+  useEffect(() => {
+    if (historyOpen) loadHistory();
+  }, [historyOpen, loadHistory]);
+
   const currentTab = tabs[activeTab];
 
   // Sync external query changes to current tab
@@ -83,6 +99,7 @@ const TabbedSqlEditor = ({ query, setQuery, onExecuteQuery, queryResult, loading
         )
       );
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, activeTab]);
 
   // Handle tab change
@@ -253,59 +270,49 @@ const TabbedSqlEditor = ({ query, setQuery, onExecuteQuery, queryResult, loading
     setDragOverTab(null);
   };
 
-  // SQL editor theme customization
+  // SQL editor theme - dark VSCode style
   const editorTheme = EditorView.theme({
-    '&': {
-      fontSize: '14px',
-      height: '100%',
-    },
+    '&': { fontSize: '13px', height: '100%', backgroundColor: '#1e1e1e', flex: 1 },
+    '&.cm-editor': { height: '100%' },
+    '.cm-scroller': { overflow: 'auto', fontFamily: '"Cascadia Code", "Fira Code", Consolas, "Courier New", monospace' },
     '.cm-content': {
-      fontFamily: 'Monaco, Menlo, "Ubuntu Mono", Consolas, monospace',
-      fontSize: '14px',
+      fontFamily: '"Cascadia Code", "Fira Code", Consolas, "Courier New", monospace',
+      fontSize: '13px',
       lineHeight: '1.6',
+      caretColor: '#aeafad',
+      minHeight: '200px',
     },
     '.cm-gutters': {
-      backgroundColor: '#f5f5f5',
-      color: '#999',
+      backgroundColor: '#1e1e1e',
+      color: '#555',
       border: 'none',
-      fontSize: '13px',
+      fontSize: '12px',
+      minWidth: '48px',
     },
-    '.cm-activeLineGutter': {
-      backgroundColor: '#e8f2ff',
-    },
-    '.cm-activeLine': {
-      backgroundColor: '#f0f7ff',
-    },
-    '.cm-line': {
-      padding: '0 2px',
-    },
+    '.cm-activeLineGutter': { backgroundColor: '#2a2d2e' },
+    '.cm-activeLine':        { backgroundColor: '#2a2d2e' },
+    '.cm-cursor':            { borderLeftColor: '#aeafad' },
+    '.cm-selectionBackground, ::selection': { backgroundColor: '#264f78 !important' },
+    '.cm-focused .cm-selectionBackground': { backgroundColor: '#264f78' },
   });
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#1e1e1e', position: 'relative' }}>
       {/* Tab Bar */}
       <TabContainer>
         <Tabs
           value={activeTab}
           onChange={handleTabChange}
-          TabIndicatorProps={{
-            style: {
-              display: 'none',
-            },
-          }}
+          TabIndicatorProps={{ style: { display: 'none' } }}
           variant="scrollable"
           scrollButtons="auto"
-          sx={{ flexGrow: 1 }}
+          sx={{ flexGrow: 1, minHeight: 35,
+            '& .MuiTabs-scrollButtons': { color: '#858585' },
+            '& .MuiTabs-flexContainer': { height: 35 },
+          }}
         >
           {tabs.map((tab, index) => (
             <StyledTab
-              sx={{
-                opacity: draggedTab === index ? 0.5 : 1,
-                backgroundColor:
-                  dragOverTab === index && draggedTab !== index ? '#e3f2fd' : undefined,
-                cursor: 'grab',
-                '&:active': { cursor: 'grabbing' },
-              }}
               key={tab.id}
               draggable
               onDragStart={(e) => handleDragStart(e, index)}
@@ -313,65 +320,27 @@ const TabbedSqlEditor = ({ query, setQuery, onExecuteQuery, queryResult, loading
               onDragOver={(e) => handleDragOver(e, index)}
               onDrop={(e) => handleDrop(e, index)}
               onContextMenu={(event) => handleContextMenuOpen(event, index)}
+              sx={{
+                opacity: draggedTab === index ? 0.4 : 1,
+                backgroundColor: dragOverTab === index && draggedTab !== index
+                  ? 'rgba(79,195,247,0.08)' : undefined,
+              }}
               label={
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.5,
-                    width: '100%',
-                  }}
-                >
-                  <DragIcon sx={{ fontSize: 14, color: 'inherit', opacity: 0.7 }} />
-                  <CodeIcon sx={{ fontSize: 14, color: '#336791' }} />
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      flexGrow: 1,
-                      minWidth: 0,
-                    }}
-                  >
-                    <Typography
-                      variant="body2"
-                      noWrap
-                      sx={{
-                        maxWidth: 120,
-                        color: 'inherit',
-                        fontWeight: 'normal',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {tab.name}
-                    </Typography>
-                    {tab.isDirty && (
-                      <Box
-                        sx={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: '50%',
-                          backgroundColor: 'currentColor',
-                          ml: 0.5,
-                          flexShrink: 0,
-                          opacity: 0.8,
-                        }}
-                      />
-                    )}
-                  </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <CodeIcon sx={{ fontSize: 12, color: '#4fc3f7', flexShrink: 0 }} />
+                  <Typography noWrap sx={{ maxWidth: 110, fontSize: 12, color: 'inherit' }}>
+                    {tab.name}
+                  </Typography>
+                  {tab.isDirty && (
+                    <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#cccccc', flexShrink: 0 }} />
+                  )}
                   {tabs.length > 1 && (
                     <IconButton
                       size="small"
                       onClick={(e) => closeTab(index, e)}
-                      sx={{
-                        ml: 0.5,
-                        color: 'inherit',
-                        flexShrink: 0,
-                        p: 0,
-                        '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
-                      }}
+                      sx={{ p: 0, ml: 0.25, color: 'inherit', '&:hover': { color: '#cccccc', bgcolor: 'rgba(255,255,255,0.12)' } }}
                     >
-                      <CloseIcon fontSize="small" />
+                      <CloseIcon sx={{ fontSize: 12 }} />
                     </IconButton>
                   )}
                 </Box>
@@ -380,23 +349,81 @@ const TabbedSqlEditor = ({ query, setQuery, onExecuteQuery, queryResult, loading
           ))}
         </Tabs>
 
-        {/* New Tab Button */}
-        <Tooltip title="New Query Tab">
-          <IconButton size="small" onClick={createNewTab} sx={{ color: 'black', ml: 1 }}>
-            <AddIcon />
+        <Tooltip title="New Query Tab (Ctrl+T)">
+          <IconButton size="small" onClick={createNewTab}
+            sx={{ color: '#858585', ml: 0.5, '&:hover': { color: '#cccccc' } }}>
+            <AddIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+
+        <Tooltip title="Query History">
+          <IconButton size="small" onClick={() => setHistoryOpen(v => !v)}
+            sx={{ color: historyOpen ? '#9c6fde' : '#858585', ml: 0.25, '&:hover': { color: '#9c6fde' } }}>
+            <HistoryIcon sx={{ fontSize: 16 }} />
           </IconButton>
         </Tooltip>
       </TabContainer>
 
+      {/* ── History dropdown ── */}
+      {historyOpen && (
+        <ClickAwayListener onClickAway={() => setHistoryOpen(false)}>
+          <Paper elevation={8} sx={{
+            position: 'absolute', zIndex: 1300, top: 35,
+            right: 8, width: 440, maxHeight: 340, overflow: 'auto',
+            bgcolor: '#252526', border: '1px solid #3c3c3c',
+            boxShadow: '0 6px 24px rgba(0,0,0,0.6)',
+          }}>
+            <Box sx={{ px: 1.5, py: 0.75, display: 'flex', alignItems: 'center', borderBottom: '1px solid #3c3c3c' }}>
+              <Typography sx={{ fontSize: 11, fontWeight: 600, color: '#6e6e6e', textTransform: 'uppercase', letterSpacing: 0.8, flex: 1 }}>
+                Query History{accpId ? ` — ACCP ${accpId}` : ''}
+              </Typography>
+              <Typography sx={{ fontSize: 10, color: '#555', cursor: 'pointer', '&:hover': { color: '#d4d4d4' } }}
+                onClick={() => {
+                  localStorage.removeItem(`squid_queries_${accpId || 'default'}`);
+                  setHistory([]);
+                }}>
+                Clear
+              </Typography>
+            </Box>
+            {history.length === 0 ? (
+              <Box sx={{ p: 2 }}>
+                <Typography sx={{ fontSize: 12, color: '#6e6e6e' }}>No queries yet.</Typography>
+              </Box>
+            ) : (
+              history.map((entry, i) => (
+                <Box key={entry.id}
+                  onClick={() => {
+                    setTabs(prev => prev.map((tab, idx) => idx === activeTab ? { ...tab, content: entry.sql, isDirty: true } : tab));
+                    if (setQuery) setQuery(entry.sql);
+                    setHistoryOpen(false);
+                  }}
+                  sx={{
+                    px: 1.5, py: 0.75, cursor: 'pointer', borderBottom: '1px solid #2a2a2a',
+                    '&:hover': { bgcolor: '#37373d' },
+                  }}>
+                  <Typography sx={{ fontSize: 11, fontFamily: 'monospace', color: '#d4d4d4', whiteSpace: 'pre-wrap', wordBreak: 'break-all', lineHeight: 1.5 }}>
+                    {entry.sql.length > 200 ? entry.sql.slice(0, 200) + '…' : entry.sql}
+                  </Typography>
+                  <Typography sx={{ fontSize: 10, color: '#555', mt: 0.25 }}>
+                    {new Date(entry.timestamp).toLocaleString()}
+                  </Typography>
+                </Box>
+              ))
+            )}
+          </Paper>
+        </ClickAwayListener>
+      )}
+
       {/* SQL Editor */}
-      <Box sx={{ flexGrow: 1, overflow: 'auto', minHeight: '300px' }}>
+      <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <CodeMirror
           key={`editor-${tabs[activeTab]?.id}`}
           value={currentTab?.content || ''}
           onChange={handleEditorChange}
           extensions={[sql(), editorTheme]}
-          theme="light"
-          minHeight="300px"
+          theme="dark"
+          style={{ flex: 1, height: '100%', overflow: 'auto' }}
+          height="100%"
           basicSetup={{
             lineNumbers: true,
             highlightActiveLineGutter: true,
@@ -412,21 +439,14 @@ const TabbedSqlEditor = ({ query, setQuery, onExecuteQuery, queryResult, loading
         open={contextMenu !== null}
         onClose={handleContextMenuClose}
         anchorReference="anchorPosition"
-        anchorPosition={
-          contextMenu !== null
-            ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
-            : undefined
-        }
+        anchorPosition={contextMenu !== null ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined}
+        PaperProps={{ sx: { bgcolor: '#252526', border: '1px solid #3c3c3c', minWidth: 160 } }}
       >
-        <MenuItem onClick={renameTab}>Rename Tab</MenuItem>
-        <MenuItem onClick={duplicateTab}>Duplicate Tab</MenuItem>
+        <MenuItem onClick={renameTab}    sx={{ fontSize: 13, color: '#cccccc' }}>Rename Tab</MenuItem>
+        <MenuItem onClick={duplicateTab} sx={{ fontSize: 13, color: '#cccccc' }}>Duplicate Tab</MenuItem>
         {tabs.length > 1 && (
-          <MenuItem
-            onClick={() => {
-              if (contextMenuTab !== null) closeTab(contextMenuTab);
-              handleContextMenuClose();
-            }}
-          >
+          <MenuItem onClick={() => { if (contextMenuTab !== null) closeTab(contextMenuTab); handleContextMenuClose(); }}
+            sx={{ fontSize: 13, color: '#f48771' }}>
             Close Tab
           </MenuItem>
         )}

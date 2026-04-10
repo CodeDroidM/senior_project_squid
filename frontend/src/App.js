@@ -4,19 +4,25 @@ import {
   AppBar,
   Toolbar,
   Typography,
-  Button,
   IconButton,
   Menu,
   MenuItem,
   Alert,
   Snackbar,
-  CircularProgress,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  Button,
+  Divider,
 } from '@mui/material';
 import { createTheme, ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import LogoutIcon from '@mui/icons-material/Logout';
-import SettingsIcon from '@mui/icons-material/Settings';
-import StorageIcon from '@mui/icons-material/Storage';
+import SyncIcon from '@mui/icons-material/Sync';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 
 import ObjectsPanel from './components/ObjectsPanel';
 import TabbedSqlEditor from './components/TabbedSqlEditor';
@@ -24,24 +30,52 @@ import OutputPanel from './components/OutputPanel';
 import Console from './components/Console';
 import ResultsTable from './components/ResultsTable';
 import Login from './components/Login';
-import { connectToAgent, validateUser, connectToAccp, getAccessibleObjects, executeQuery, disconnectFromAgent, setAuthToken } from './api';
+import { validateUser, connectToAccp, getAccessibleObjects, executeQuery, disconnectFromAgent, setAuthToken, switchAccp, getSessionInfo } from './api';
 import * as XLSX from 'xlsx';
 
 const theme = createTheme({
   palette: {
-    primary: {
-      main: '#1976d2',
+    mode: 'dark',
+    primary:   { main: '#9c6fde' },
+    secondary: { main: '#89d185' },
+    background: {
+      default: '#1e1e1e',
+      paper:   '#252526',
     },
-    secondary: {
-      main: '#dc004e',
+    text: {
+      primary:   '#d4d4d4',
+      secondary: '#9a9a9a',
     },
+    divider: '#3c3c3c',
+    success: { main: '#89d185' },
+    error:   { main: '#f48771' },
+    warning: { main: '#e9c46a' },
+  },
+  typography: {
+    fontFamily: '"Segoe UI", system-ui, -apple-system, sans-serif',
+    fontSize: 13,
+  },
+  components: {
+    MuiCssBaseline: {
+      styleOverrides: {
+        body: { backgroundColor: '#1e1e1e', color: '#d4d4d4' },
+        '*::-webkit-scrollbar':       { width: 8, height: 8 },
+        '*::-webkit-scrollbar-track': { background: '#1e1e1e' },
+        '*::-webkit-scrollbar-thumb': { background: '#424242', borderRadius: 4 },
+        '*::-webkit-scrollbar-thumb:hover': { background: '#555' },
+      },
+    },
+    MuiAppBar:  { styleOverrides: { root: { backgroundColor: '#2d2d2d', boxShadow: 'none', borderBottom: '1px solid #3c3c3c' } } },
+    MuiToolbar: { styleOverrides: { root: { minHeight: '36px !important', paddingLeft: 12, paddingRight: 8 } } },
+    MuiButton:  { styleOverrides: { root: { textTransform: 'none', fontSize: 12 } } },
+    MuiIconButton: { styleOverrides: { root: { borderRadius: 4, padding: 4 } } },
+    MuiMenuItem: { styleOverrides: { root: { fontSize: 13 } } },
   },
 });
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [connected, setConnected] = useState(false);
-  const [connecting, setConnecting] = useState(false);
   const [loadingObjects, setLoadingObjects] = useState(false);
   const [accessData, setAccessData] = useState(null);
   const [query, setQuery] = useState('');
@@ -52,6 +86,8 @@ function App() {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [anchorEl, setAnchorEl] = useState(null);
   const [credentials, setCredentials] = useState(null);
+  const [switchingAccp, setSwitchingAccp] = useState(false);
+  const [switchAccpData, setSwitchAccpData] = useState(null);
 
   const addLog = (message, type = 'info') => {
     const newLog = {
@@ -64,14 +100,13 @@ function App() {
   };
 
   const handleLogin = async (creds) => {
-    setConnecting(true);
     setError(null);
     setCredentials(creds);
     addLog('Connecting to DbSrc Agent...', 'info');
 
     try {
       addLog(`Authenticating user ${creds.username}...`, 'info');
-      const validationResult = await validateUser(creds.username, creds.password);
+      await validateUser(creds.username, creds.password);
       addLog('User validated successfully', 'success');
       
       addLog(`Connecting to ACCP ${creds.accp_id}...`, 'info');
@@ -82,15 +117,14 @@ function App() {
       addLog(`Successfully connected to ACCP ${creds.accp_id}`, 'success');
       setSnackbar({ open: true, message: 'Connected successfully!', severity: 'success' });
 
-      const credentialsWithTimestamp = {
+      const sessionInfo = {
         username: creds.username,
-        password: creds.password, // Note: In production, consider security implications
         accp_id: creds.accp_id,
         host_ip: creds.host_ip || '127.0.0.1',
         loginTime: new Date().toISOString(),
         expiresInHours: connectionResult.expires_in_hours || 24,
       };
-      localStorage.setItem('squid_credentials', JSON.stringify(credentialsWithTimestamp));
+      sessionStorage.setItem('squid_session', JSON.stringify(sessionInfo));
 
       addLog('Loading accessible objects...', 'info');
       setLoadingObjects(true);
@@ -104,17 +138,7 @@ function App() {
       addLog(`Connection failed: ${errorMsg}`, 'error');
       setSnackbar({ open: true, message: errorMsg, severity: 'error' });
       throw err;
-    } finally {
-      setConnecting(false);
     }
-  };
-
-  const handleConnect = async () => {
-    if (!credentials) {
-      setSnackbar({ open: true, message: 'Please login first', severity: 'warning' });
-      return;
-    }
-    await handleLogin(credentials);
   };
 
   const handleDisconnect = async () => {
@@ -127,8 +151,7 @@ function App() {
       setLoadingObjects(false);
       setCredentials(null);
       
-      localStorage.removeItem('squid_credentials');
-      sessionStorage.removeItem('squid_credentials');
+      sessionStorage.removeItem('squid_session');
       setAuthToken(null);
       
       addLog('Disconnected from DbSrc Agent', 'info');
@@ -151,9 +174,18 @@ function App() {
         throw new Error(result.err_msg || 'Query execution failed');
       }
 
-      setQueryResult(result);
+      setQueryResult({ ...result, executedSql: sql });
       addLog('Query executed successfully', 'success');
       setSnackbar({ open: true, message: 'Query executed successfully', severity: 'success' });
+
+      // Save to query history
+      const accpKey = `squid_queries_${credentials?.accp_id || 'default'}`;
+      try {
+        const existing = JSON.parse(localStorage.getItem(accpKey) || '[]');
+        const entry = { id: Date.now(), sql: sql.trim(), timestamp: new Date().toISOString() };
+        const updated = [entry, ...existing.filter(e => e.sql !== sql.trim())].slice(0, 50);
+        localStorage.setItem(accpKey, JSON.stringify(updated));
+      } catch (_) { /* storage quota — ignore */ }
     } catch (err) {
       const errorMsg = err.response?.data?.detail || err.message || 'Query execution failed';
       setError(errorMsg);
@@ -167,10 +199,6 @@ function App() {
   const handleTableClick = (sampleQuery) => {
     setQuery(sampleQuery);
     addLog(`Loaded sample query for table`, 'info');
-  };
-
-  const handleClearLogs = () => {
-    setLogs([]);
   };
 
   const handleExport = (format) => {
@@ -200,10 +228,16 @@ function App() {
         URL.revokeObjectURL(url);
         addLog('Exported to JSON', 'success');
       } else if (format === 'xml') {
+        const sanitizeTag = (name) => {
+          let tag = String(name).replace(/[^a-zA-Z0-9_.\-]/g, '_');
+          if (/^[^a-zA-Z_]/.test(tag)) tag = '_' + tag;
+          return tag || '_col';
+        };
         let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<results>\n';
         data.forEach((row) => {
           xml += '  <row>\n';
           columns.forEach((col) => {
+            const tag = sanitizeTag(col);
             const value = row[col] !== null && row[col] !== undefined ? String(row[col]) : '';
             const escapedValue = value
               .replace(/&/g, '&amp;')
@@ -211,7 +245,7 @@ function App() {
               .replace(/>/g, '&gt;')
               .replace(/"/g, '&quot;')
               .replace(/'/g, '&apos;');
-            xml += `    <${col}>${escapedValue}</${col}>\n`;
+            xml += `    <${tag}>${escapedValue}</${tag}>\n`;
           });
           xml += '  </row>\n';
         });
@@ -240,64 +274,122 @@ function App() {
     setAnchorEl(null);
   };
 
+  const handleRefreshSchema = async () => {
+    handleMenuClose();
+    if (!connected) return;
+    addLog('Refreshing accessible schema objects…', 'info');
+    setLoadingObjects(true);
+    try {
+      const accessResult = await getAccessibleObjects();
+      setAccessData(accessResult);
+      addLog('Schema refreshed', 'success');
+      setSnackbar({ open: true, message: 'Schema refreshed', severity: 'success' });
+    } catch (err) {
+      addLog(`Schema refresh failed: ${err.message}`, 'error');
+    } finally {
+      setLoadingObjects(false);
+    }
+  };
+
   const handleCloseSnackbar = () => {
     setSnackbar({ ...snackbar, open: false });
   };
 
+  // ── Change ACCP ──
+  const handleOpenSwitchAccp = async () => {
+    handleMenuClose();
+    try {
+      const info = await getSessionInfo();
+      setSwitchAccpData({ accps: info.available_accps, username: info.username });
+      setSwitchingAccp(true);
+    } catch (err) {
+      addLog('Could not fetch ACCP list — try logging out and back in.', 'error');
+      setSnackbar({ open: true, message: 'Session expired — please logout and login again', severity: 'error' });
+    }
+  };
+
+  const handleSwitchAccpSelect = async (accp) => {
+    try {
+      let schemaName = accp.schema_name;
+      if (!accp._alreadySwitched) {
+        const result = await switchAccp(accp.accp_id, credentials?.host_ip || '127.0.0.1');
+        schemaName = result.schema_name;
+      }
+      setCredentials(prev => ({ ...prev, accp_id: accp.accp_id, schema_name: schemaName }));
+      try {
+        const stored = JSON.parse(sessionStorage.getItem('squid_session') || '{}');
+        stored.accp_id = accp.accp_id;
+        sessionStorage.setItem('squid_session', JSON.stringify(stored));
+      } catch (_) { /* ignore */ }
+      addLog(`Switched to ACCP ${accp.accp_id} (${schemaName || accp.accp_id})`, 'success');
+      setSnackbar({ open: true, message: `Switched to ${schemaName || accp.accp_id}`, severity: 'success' });
+      setSwitchingAccp(false);
+      setSwitchAccpData(null);
+      setLoadingObjects(true);
+      try {
+        const accessResult = await getAccessibleObjects();
+        setAccessData(accessResult);
+        setQueryResult(null);
+      } finally {
+        setLoadingObjects(false);
+      }
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.message || 'Switch failed';
+      addLog(`ACCP switch failed: ${msg}`, 'error');
+      throw err;
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
+
+    localStorage.removeItem('squid_credentials');
     
-    const attemptAutoLogin = async () => {
-      const storedCreds = localStorage.getItem('squid_credentials');
-      if (!storedCreds || !isMounted) return;
+    const attemptSessionRestore = async () => {
+      const storedSession = sessionStorage.getItem('squid_session');
+      if (!storedSession || !isMounted) return;
 
       try {
-        const creds = JSON.parse(storedCreds);
+        const session = JSON.parse(storedSession);
         
-        if (creds.loginTime && creds.expiresInHours) {
-          const loginTime = new Date(creds.loginTime);
-          const expiresInHours = creds.expiresInHours || 24;
+        // Check expiration
+        if (session.loginTime && session.expiresInHours) {
+          const loginTime = new Date(session.loginTime);
+          const expiresInHours = session.expiresInHours || 24;
           const expirationTime = new Date(loginTime.getTime() + expiresInHours * 60 * 60 * 1000);
           
           if (new Date() > expirationTime) {
-            localStorage.removeItem('squid_credentials');
+            sessionStorage.removeItem('squid_session');
             if (isMounted) addLog('Session expired, please login again', 'warning');
             return;
           }
         }
 
         if (isMounted) {
-          addLog('Auto-login with saved credentials...', 'info');
-          setConnecting(true);
+          addLog('Checking server session...', 'info');
         }
         
-        const { loginTime: _loginTime, expiresInHours: _expiresInHours, ...apiCreds } = creds;
-        
         try {
-          if (isMounted) setCredentials(apiCreds);
-          
-          const validationResult = await validateUser(apiCreds.username, apiCreds.password);
+          const info = await getSessionInfo();
           
           if (!isMounted) return;
-          addLog('User validated successfully', 'success');
-          
-          const connectionResult = await connectToAccp(apiCreds.accp_id, apiCreds.host_ip || '127.0.0.1');
-          
-          if (!isMounted) return;
-          
+
+          const restoredCreds = {
+            username: info.username || session.username,
+            accp_id: session.accp_id,
+            host_ip: session.host_ip || '127.0.0.1',
+          };
+          setCredentials(restoredCreds);
           setConnected(true);
           setIsLoggedIn(true);
-          addLog(`Successfully reconnected to ACCP ${apiCreds.accp_id}`, 'success');
+          addLog(`Session restored for ${restoredCreds.username} on ACCP ${restoredCreds.accp_id}`, 'success');
 
-          // Update credentials with new timestamp
-          const credentialsWithTimestamp = {
-            ...apiCreds,
+          const updatedSession = {
+            ...session,
             loginTime: new Date().toISOString(),
-            expiresInHours: connectionResult.expires_in_hours || 24,
           };
-          localStorage.setItem('squid_credentials', JSON.stringify(credentialsWithTimestamp));
+          sessionStorage.setItem('squid_session', JSON.stringify(updatedSession));
           
-          // Fetch accessible objects
           setLoadingObjects(true);
           const accessResult = await getAccessibleObjects();
           if (isMounted) {
@@ -306,99 +398,127 @@ function App() {
             addLog('Loaded accessible objects', 'success');
           }
         } catch (err) {
-          // Auto-login failed, clear storage and show login screen
-          localStorage.removeItem('squid_credentials');
+          sessionStorage.removeItem('squid_session');
           if (isMounted) {
-            const errorMsg = err.response?.data?.detail || err.message || 'Auto-login failed';
-            addLog(`Auto-login failed: ${errorMsg}`, 'warning');
+            const errorMsg = err.response?.data?.detail || err.message || 'Session expired';
+            addLog(`Session restore failed: ${errorMsg}`, 'warning');
             setConnected(false);
             setIsLoggedIn(false);
           }
         } finally {
-          if (isMounted) setConnecting(false);
+          if (isMounted) setLoadingObjects(false);
         }
       } catch (e) {
-        console.error('Failed to parse stored credentials', e);
-        localStorage.removeItem('squid_credentials');
-        if (isMounted) setConnecting(false);
+        console.error('Failed to parse stored session', e);
+        sessionStorage.removeItem('squid_session');
       }
     };
 
-    attemptAutoLogin();
+    attemptSessionRestore();
     
     return () => {
       isMounted = false;
     };
-  }, []); // Empty dependency array - only run once on mount
+  }, []);
 
-  // Show login screen if not logged in
   if (!isLoggedIn) {
-    return <Login onLogin={handleLogin} />;
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Login onLogin={handleLogin} />
+      </ThemeProvider>
+    );
   }
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-        {/* AppBar */}
-        <AppBar position="static" elevation={2}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', bgcolor: '#1e1e1e' }}>
+
+        {/* ── Title Bar ─────────────────────────────────────────────── */}
+        <AppBar position="static" elevation={0}>
           <Toolbar>
-            <StorageIcon sx={{ mr: 2 }} />
-            <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 'bold' }}>
-              SQUID - SQL Query Interface for Data
+            <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'rgba(255,255,255,0.12)', borderRadius: '8px', p: 0.4, mr: 1, flexShrink: 0 }}>
+              <Box component="img" src="/squid.svg" alt="SQUID Logo" sx={{ width: 34, height: 34, objectFit: 'contain', display: 'block' }} />
+            </Box>
+            <Typography variant="body2" sx={{ fontWeight: 700, color: '#d4d4d4', letterSpacing: 0.5 }}>
+              SQUID
+            </Typography>
+            <Typography variant="caption" sx={{ ml: 1, color: '#6e6e6e' }}>
+              SQL Query Interface for Data
             </Typography>
 
-            {connected ? (
-              <Typography variant="body2" sx={{ mr: 2, display: 'flex', alignItems: 'center' }}>
-                <Box
-                  sx={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    bgcolor: 'success.main',
-                    mr: 1,
-                  }}
-                />
-                Connected
+            <Box sx={{ flex: 1 }} />
+
+            {/* connection badge */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mr: 1,
+              bgcolor: connected ? 'rgba(137,209,133,0.1)' : 'rgba(244,135,113,0.1)',
+              border: '1px solid', borderColor: connected ? '#89d18540' : '#f4877140',
+              borderRadius: 1, px: 1, py: 0.25 }}>
+              <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: connected ? '#89d185' : '#f48771' }} />
+              <Typography variant="caption" sx={{ color: connected ? '#89d185' : '#f48771', fontSize: 11 }}>
+                {connected ? '+ Connected' : 'Disconnected'}
               </Typography>
-            ) : (
-              <Button
-                color="inherit"
-                onClick={handleConnect}
-                disabled={connecting}
-                startIcon={connecting ? <CircularProgress size={20} color="inherit" /> : null}
-              >
-                {connecting ? 'Connecting...' : 'Connect'}
-              </Button>
-            )}
+            </Box>
 
-            <IconButton color="inherit" onClick={handleMenuOpen}>
-              <SettingsIcon />
-            </IconButton>
+            <Tooltip title="Options">
+              <IconButton size="small" onClick={handleMenuOpen} sx={{ color: '#6e6e6e', '&:hover': { color: '#d4d4d4' } }}>
+                <MoreVertIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
 
-            <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleMenuClose}>
-              <MenuItem onClick={handleMenuClose}>
-                <SettingsIcon sx={{ mr: 1 }} />
-                Settings
+            <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleMenuClose}
+              PaperProps={{ sx: { bgcolor: '#2d2d2d', border: '1px solid #3c3c3c', minWidth: 220, boxShadow: '0 4px 20px rgba(0,0,0,0.5)' } }}>
+              <Box sx={{ px: 1.5, py: 0.75 }}>
+                <Typography sx={{ fontSize: 10, color: '#6e6e6e', letterSpacing: 1, textTransform: 'uppercase' }}>
+                  ACCP {credentials?.accp_id}
+                </Typography>
+                <Typography sx={{ fontSize: 11, color: '#9a9a9a' }}>
+                  {credentials?.username}
+                </Typography>
+              </Box>
+              <Divider sx={{ borderColor: '#3c3c3c', my: 0.5 }} />
+              <MenuItem onClick={handleRefreshSchema}
+                sx={{ fontSize: 13, color: '#d4d4d4', gap: 1, '&:hover': { bgcolor: '#3a3a3a' } }}>
+                <SyncIcon sx={{ fontSize: 15, color: '#89d185' }} />
+                <Box>
+                  <Typography sx={{ fontSize: 13, color: '#d4d4d4', lineHeight: 1.3 }}>Refresh Schema</Typography>
+                  <Typography sx={{ fontSize: 10, color: '#6e6e6e', lineHeight: 1.2 }}>Re-fetch tables and views</Typography>
+                </Box>
               </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  handleDisconnect();
-                  handleMenuClose();
-                }}
-              >
-                <LogoutIcon sx={{ mr: 1 }} />
-                Logout
+              <MenuItem onClick={handleOpenSwitchAccp}
+                sx={{ fontSize: 13, color: '#9c6fde', gap: 1, '&:hover': { bgcolor: '#2a2040' } }}>
+                <SyncIcon sx={{ fontSize: 15, color: '#9c6fde' }} />
+                <Box>
+                  <Typography sx={{ fontSize: 13, color: '#9c6fde', lineHeight: 1.3 }}>Change ACCP Schema</Typography>
+                  <Typography sx={{ fontSize: 10, color: '#6e6e6e', lineHeight: 1.2 }}>Return to ACCP selection</Typography>
+                </Box>
+              </MenuItem>
+              <Divider sx={{ borderColor: '#3c3c3c', my: 0.5 }} />
+              <MenuItem onClick={() => { handleDisconnect(); handleMenuClose(); }}
+                sx={{ fontSize: 13, color: '#f48771', gap: 1, '&:hover': { bgcolor: '#3a2020' } }}>
+                <LogoutIcon sx={{ fontSize: 15 }} />
+                <Box>
+                  <Typography sx={{ fontSize: 13, color: '#f48771', lineHeight: 1.3 }}>Logout</Typography>
+                  <Typography sx={{ fontSize: 10, color: '#6e6e6e', lineHeight: 1.2 }}>Disconnect and sign out</Typography>
+                </Box>
               </MenuItem>
             </Menu>
           </Toolbar>
         </AppBar>
 
-        {/* Main Content Area */}
-        <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'row' }}>
-            {/* Left Panel - Objects */}
-            <Box sx={{ width: '20%', minWidth: '250px', height: '100%', overflow: 'hidden' }}>
+        {/* ── Main Layout ───────────────────────────────────────────── */}
+        <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
+
+          {/* Left Sidebar - Explorer */}
+          <Box sx={{ width: 240, flexShrink: 0, borderRight: '1px solid #3c3c3c', bgcolor: '#252526', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            {/* Sidebar header */}
+            <Box sx={{ px: 2, py: 0.75, borderBottom: '1px solid #3c3c3c' }}>
+              <Typography variant="caption" sx={{ color: '#bbb', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', fontSize: 11 }}>
+                Database Objects
+              </Typography>
+            </Box>
+            <Box sx={{ flex: 1, overflow: 'auto' }}>
               <ObjectsPanel
                 accessData={accessData}
                 onTableClick={handleTableClick}
@@ -406,55 +526,88 @@ function App() {
                 error={!connected && !loadingObjects ? error : null}
               />
             </Box>
+          </Box>
 
-            {/* Right Panel - Tabbed SQL Editor */}
-            <Box sx={{ flex: 1, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                {/* SQL Editor with Tabs */}
-                <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                  <TabbedSqlEditor
-                    query={query}
-                    setQuery={setQuery}
-                    onExecuteQuery={handleExecuteQuery}
-                    queryResult={queryResult}
-                    loading={loading}
-                  />
-                </Box>
-
-                {/* Output Panel with Console and Results */}
-                <OutputPanel
-                  initialHeight={260}
-                  minHeight={120}
-                  maxHeight={600}
-                  loading={loading}
-                  result={error ? 'error' : queryResult ? 'success' : null}
-                  queryResult={queryResult}
-                  onExport={handleExport}
-                  onRunQuery={() => handleExecuteQuery(query)}
-                >
-                  {/* Console View */}
-                  <Console logs={logs} />
-                  
-                  {/* Results Table View */}
-                  <ResultsTable queryResult={queryResult} />
-                </OutputPanel>
-              </Box>
-            </Box>
+          {/* Editor + Output */}
+          <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <TabbedSqlEditor
+              query={query}
+              setQuery={setQuery}
+              onExecuteQuery={handleExecuteQuery}
+              queryResult={queryResult}
+              loading={loading}
+              accpId={credentials?.accp_id}
+            />
+            <OutputPanel
+              initialHeight={280}
+              minHeight={120}
+              maxHeight={2000}
+              loading={loading}
+              result={error ? 'error' : queryResult ? 'success' : null}
+              queryResult={queryResult}
+              onExport={handleExport}
+              onRunQuery={() => handleExecuteQuery(query)}
+            >
+              <Console logs={logs} />
+              <ResultsTable queryResult={queryResult} />
+            </OutputPanel>
           </Box>
         </Box>
 
-        {/* Snackbar for notifications */}
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={6000}
-          onClose={handleCloseSnackbar}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        >
-          <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
+        {/* ── Status Bar ────────────────────────────────────────────── */}
+        <Box sx={{ height: 22, bgcolor: '#2a2a2a', borderTop: '1px solid #3c3c3c', display: 'flex', alignItems: 'center', px: 1.5, gap: 2, flexShrink: 0 }}>
+          <Typography variant="caption" sx={{ color: connected ? '#89d185' : '#9a9a9a', fontSize: 11 }}>
+            {connected ? `⬤  ACCP ${credentials?.accp_id}` : '○  Not connected'}
+          </Typography>
+          <Typography variant="caption" sx={{ color: '#6e6e6e', fontSize: 11 }}>
+            {credentials?.username ? `User: ${credentials.username}` : ''}
+          </Typography>
+          {loading && (
+            <Typography variant="caption" sx={{ color: '#b48aee', fontSize: 11 }}>
+              ⟳  Running query…
+            </Typography>
+          )}
+        </Box>
+
+        {/* Notifications */}
+        <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={handleCloseSnackbar}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
+          <Alert onClose={handleCloseSnackbar} severity={snackbar.severity}
+            sx={{ bgcolor: '#252526', border: '1px solid #3c3c3c', color: '#cccccc',
+              '& .MuiAlert-icon': { color: snackbar.severity === 'success' ? '#89d185' : snackbar.severity === 'error' ? '#f48771' : '#4fc3f7' } }}>
             {snackbar.message}
           </Alert>
         </Snackbar>
       </Box>
+
+      {/* ── Change ACCP overlay ─────────────────────────────────────── */}
+      <Dialog
+        open={switchingAccp}
+        onClose={() => { setSwitchingAccp(false); setSwitchAccpData(null); }}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { bgcolor: '#1e1e1e', border: '1px solid #3c3c3c', boxShadow: '0 8px 40px rgba(0,0,0,0.8)' } }}
+      >
+        <DialogTitle sx={{ borderBottom: '1px solid #3c3c3c', pb: 1 }}>
+          <Typography sx={{ fontSize: 14, fontWeight: 600, color: '#d4d4d4' }}>
+            Switch ACCP Schema
+          </Typography>
+          <Typography sx={{ fontSize: 11, color: '#6e6e6e', mt: 0.25 }}>
+            Currently connected as {credentials?.username}
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {switchAccpData && (
+            <Login
+              onLogin={() => {}}
+              initialStep={2}
+              initialAccps={switchAccpData.accps}
+              initialUser={switchAccpData.username}
+              onSwitchAccp={handleSwitchAccpSelect}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </ThemeProvider>
   );
 }

@@ -20,16 +20,6 @@ export const setAuthToken = (token) => {
   }
 };
 
-const storedCreds = localStorage.getItem('squid_credentials');
-if (storedCreds) {
-  try {
-    const creds = JSON.parse(storedCreds);
-    console.log('Found stored credentials for user:', creds.username);
-  } catch (e) {
-    console.error('Failed to parse stored credentials', e);
-  }
-}
-
 export const validateUser = async (username, password) => {
   const response = await api.post('/validate-user', { username, password });
   return response.data;
@@ -69,6 +59,16 @@ export const executeQuery = async (sql) => {
 
 export const disconnectFromAgent = async () => {
   const response = await api.post('/disconnect');
+  return response.data;
+};
+
+export const switchAccp = async (accp_id, client_host = '127.0.0.1') => {
+  const response = await api.post('/switch-accp', { accp_id, client_host });
+  return response.data;
+};
+
+export const getSessionInfo = async () => {
+  const response = await api.get('/session-info');
   return response.data;
 };
 

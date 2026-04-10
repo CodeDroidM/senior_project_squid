@@ -21,11 +21,57 @@ class DbSrcConnector:
         self.token = None
 
     def _send_request(self, request):
+        """Send a request to the DbSrc agent."""
         msg = json.dumps(request) + "\n"
         self.socket.send(msg.encode("utf-8"))
 
+    def _send_and_receive(self, request):
+        """Atomic send+receive operation to prevent buffer contamination.
+        
+        This ensures each request gets its corresponding response,
+        preventing the "broken SQL data" issue where responses get mixed up.
+        """
+        import time
+        
+        # CRITICAL FIX: Clear any stale data from the socket buffer before sending new request
+        # Set socket to non-blocking temporarily to drain any leftover data
+        self.socket.setblocking(False)
+        try:
+            while True:
+                try:
+                    stale_data = self.socket.recv(65536)
+                    if stale_data:
+                        print(f"⚠️ Cleared {len(stale_data)} bytes of stale data from buffer")
+                    else:
+                        break
+                except BlockingIOError:
+                    # No more data in buffer - this is what we want
+                    break
+        finally:
+            # Restore blocking mode
+            self.socket.setblocking(True)
+            self.socket.settimeout(30)
+        
+        # Send the request
+        msg = json.dumps(request) + "\n"
+        self.socket.send(msg.encode("utf-8"))
+        
+        # Small delay to let server process
+        time.sleep(0.05)
+        
+        # Now receive the response
+        return self._receive_response_internal()
+
     def _receive_response(self):
-        """Receive response from DbSrc agent, handling large responses."""
+        """Legacy method for compatibility. Use _send_and_receive instead."""
+        return self._receive_response_internal()
+    
+    def _receive_response_internal(self):
+        """Receive response from DbSrc agent, handling large responses.
+        
+        IMPORTANT: Each request/response must be atomic to prevent buffer contamination.
+        The socket is persistent, so we must ensure we read exactly one complete response.
+        """
         buffer = b''
         chunk_size = 65536
         max_wait_time = 2.0
@@ -41,8 +87,20 @@ class DbSrcConnector:
                 # Check if we might have a complete message
                 if b'\n' in buffer:
                     data = buffer.decode("utf-8", errors='replace').strip()
+                    
+                    # Try to parse - if there are multiple JSON objects, only take the first one
                     try:
-                        parsed = json.loads(data)
+                        # Use JSONDecoder to parse just the first complete object
+                        from json import JSONDecoder
+                        decoder = JSONDecoder()
+                        parsed, idx = decoder.raw_decode(data)
+                        
+                        # Check if there's extra data after the first JSON object
+                        remaining = data[idx:].strip()
+                        if remaining:
+                            print(f"⚠️ Found extra data after JSON response ({len(remaining)} chars), ignoring it")
+                            print(f"⚠️ Extra data preview: {remaining[:200]}")
+                        
                         return parsed
                     except json.JSONDecodeError as e:
                         if len(chunk) == chunk_size:
@@ -50,6 +108,7 @@ class DbSrcConnector:
                             continue
                         
                         print(f"⚠️ Incomplete JSON response received (length: {len(data)} bytes)")
+                        print(f"⚠️ JSON data: {data}")
                         print(f"⚠️ JSON error: {e}")
                         print(f"⚠️ First 500 chars: {data[:500]}")
                         print(f"⚠️ Last 500 chars: {data[-500:]}")
@@ -86,7 +145,17 @@ class DbSrcConnector:
             return {"err_code": "98", "err_msg": "Empty response from DbSrc agent"}
         
         try:
-            return json.loads(data)
+            # Use JSONDecoder to parse just the first complete object
+            from json import JSONDecoder
+            decoder = JSONDecoder()
+            parsed, idx = decoder.raw_decode(data)
+            
+            # Check if there's extra data after the first JSON object
+            remaining = data[idx:].strip()
+            if remaining:
+                print(f"⚠️ Found extra data in final parse ({len(remaining)} chars), ignoring it")
+            
+            return parsed
         except json.JSONDecodeError as e:
             print(f"❌ Failed to parse response as JSON: {e}")
             print(f"⚠️ Response length: {len(data)} bytes")
@@ -107,8 +176,7 @@ class DbSrcConnector:
             "password": base64.b64encode(self.agent_password.encode()).decode(),
             "action": "agent.connect",
         }
-        self._send_request(request)
-        resp = self._receive_response()
+        resp = self._send_and_receive(request)
         if resp.get("err_code") != "0":
             raise Exception(f"❌ Agent connection failed: {resp}")
         print("✅ Agent connected successfully.")
@@ -121,8 +189,7 @@ class DbSrcConnector:
             "password": base64.b64encode(self.agent_password.encode()).decode(),
             "action": cmd,
         }
-        self._send_request(request)
-        resp = self._receive_response()
+        resp = self._send_and_receive(request)
 
         if resp.get("err_code") != "0" or "token" not in resp:
             raise Exception(f"❌ Authentication failed: {resp}")
@@ -149,8 +216,7 @@ class DbSrcConnector:
                     "password": base64.b64encode(self.agent_password.encode()).decode(),
                     "action": cmd,
                 }
-                self._send_request(request)
-                resp = self._receive_response()
+                resp = self._send_and_receive(request)
                 print(f"🔑 Validation response for {cmd}: {resp}")
                 
                 if resp.get("err_code") == "0":
@@ -178,8 +244,7 @@ class DbSrcConnector:
             "password": base64.b64encode(self.agent_password.encode()).decode(),
             "action": cmd,
         }
-        self._send_request(request)
-        return self._receive_response()
+        return self._send_and_receive(request)
     
     def list_user_accps(self, username):
         """List all ACCPs accessible to the user.
@@ -193,8 +258,7 @@ class DbSrcConnector:
             "password": base64.b64encode(self.agent_password.encode()).decode(),
             "action": cmd,
         }
-        self._send_request(request)
-        access_data = self._receive_response()
+        access_data = self._send_and_receive(request)
         
         return self.parse_accessible_accps(access_data)
 
@@ -230,11 +294,22 @@ class DbSrcConnector:
                     for item in data:
                         print(f"🔍 Processing ACCP item: {item}")
                         if isinstance(item, dict):
+                            # Log ALL fields to check for ROLE metadata
+                            print(f"🔍 Available fields in item: {list(item.keys())}")
+                            
                             accp_id = str(item.get("ACCP_ID") or item.get("accp_id") or item.get("ID") or "")
                             accp_name = item.get("ACCP_NAME") or item.get("accp_name") or item.get("NAME") or ""
                             schema_name = item.get("SCHEMA_NAME") or item.get("schema_name") or item.get("DB_NAME") or ""
+                            accp_type = item.get("ACCP_TYPE") or item.get("accp_type") or "USER"  # USER or ROLE
                             db_name = item.get("DB_NAME") or item.get("db_name") or ""
                             description = item.get("DESCRIPTION") or item.get("description") or ""
+                            
+                            # Check for ROLE-specific fields that teacher may have added
+                            role_name = item.get("ROLE_NAME") or item.get("role_name") or item.get("ROLE") or ""
+                            role_password = item.get("ROLE_PASSWORD") or item.get("role_password") or ""
+                            
+                            if role_name:
+                                print(f"🔐 Found ROLE metadata! ROLE_NAME={role_name}")
                             
                             if not description:
                                 if schema_name and accp_name:
@@ -248,10 +323,12 @@ class DbSrcConnector:
                                 accps.append({
                                     "accp_id": accp_id,
                                     "accp_name": accp_name,
+                                    "accp_type": accp_type,
                                     "schema_name": schema_name,
+                                    "role_name": role_name,  # Include ROLE name if available
                                     "description": description
                                 })
-                                print(f"✅ Found ACCP: ID={accp_id}, Name={accp_name}, Schema={schema_name}")
+                                print(f"✅ Found ACCP: ID={accp_id}, Name={accp_name}, Type={accp_type}, Schema={schema_name}, Role={role_name}")
                             else:
                                 print(f"⚠️ Skipping item with no ACCP_ID: {item}")
                             
@@ -259,6 +336,7 @@ class DbSrcConnector:
                     accp_id = str(data.get("ACCP_ID") or data.get("accp_id") or "")
                     accp_name = data.get("ACCP_NAME") or data.get("accp_name") or data.get("NAME") or ""
                     schema_name = data.get("SCHEMA_NAME") or data.get("schema_name") or data.get("DB_NAME") or ""
+                    accp_type = data.get("ACCP_TYPE") or data.get("accp_type") or "USER"
                     description = data.get("DESCRIPTION") or data.get("description") or ""
                     
                     if not description:
@@ -273,6 +351,7 @@ class DbSrcConnector:
                         accps.append({
                             "accp_id": accp_id,
                             "accp_name": accp_name,
+                            "accp_type": accp_type,
                             "schema_name": schema_name,
                             "description": description
                         })
@@ -308,13 +387,14 @@ class DbSrcConnector:
                 "action": cmd,
             }
             try:
-                self._send_request(request)
-                resp = self._receive_response()
+                resp = self._send_and_receive(request)
                 print(f"🔗 Token connection response: {resp}")
                 
                 if resp.get("err_code") == "0":
                     print(f"✅ Connected to ACCP {schema_id} with token")
-                    return True
+                    # Extract schema name from message like "Connected to schema ACCP_DISCIPLUS_LIVE_U_9393"
+                    schema_name = self._extract_schema_name(resp.get("err_msg", ""))
+                    return {"connected": True, "schema_name": schema_name}
                     
             except Exception as e:
                 print(f"⚠️ Token connection failed: {e}")
@@ -333,13 +413,13 @@ class DbSrcConnector:
                     "password": base64.b64encode(self.agent_password.encode()).decode(),
                     "action": cmd,
                 }
-                self._send_request(request)
-                resp = self._receive_response()
+                resp = self._send_and_receive(request)
                 print(f"🔗 Response: {resp}")
                 
                 if resp.get("err_code") == "0":
                     print(f"✅ Connected to ACCP {schema_id} with command: {cmd}")
-                    return True
+                    schema_name = self._extract_schema_name(resp.get("err_msg", ""))
+                    return {"connected": True, "schema_name": schema_name}
                     
                 last_error = resp.get("err_msg", "Unknown error")
                 
@@ -348,13 +428,21 @@ class DbSrcConnector:
                 continue
         
         raise Exception(f"❌ ACCP connection failed. Error: {last_error}")
+    
+    def _extract_schema_name(self, message):
+        """Extract schema name from connection message like 'Connected to schema ACCP_DISCIPLUS_LIVE_U_9393'"""
+        import re
+        match = re.search(r'Connected to schema\s+(\S+)', message)
+        if match:
+            return match.group(1)
+        return None
 
     def show_access(self, username):
         """Query Oracle data dictionary for accessible tables and views after ACCP connection."""
         query = """
             SELECT OWNER as USERNAME, OBJECT_NAME, OBJECT_TYPE 
             FROM ALL_OBJECTS 
-            WHERE OBJECT_TYPE IN ('TABLE', 'VIEW')
+            WHERE OBJECT_TYPE IN ('TABLE', 'VIEW', 'INDEX', 'FUNCTION')
             AND OWNER NOT IN ('SYS', 'SYSTEM', 'OUTLN', 'DBSNMP', 'APPQOSSYS', 'WMSYS', 'EXFSYS', 'CTXSYS', 'XDB', 'ANONYMOUS', 'ORDSYS', 'ORDDATA', 'MDSYS', 'LBACSYS', 'DVSYS', 'DVF', 'GSMADMIN_INTERNAL', 'ORDPLUGINS', 'OLAPSYS', 'FLOWS_FILES', 'ORACLE_OCM', 'APEX_PUBLIC_USER', 'SI_INFORMTN_SCHEMA', 'SPATIAL_CSW_ADMIN_USR', 'SPATIAL_WFS_ADMIN_USR', 'SYSMAN', 'MGMT_VIEW', 'APEX_040200', 'OWBSYS', 'OWBSYS_AUDIT', 'SCOTT', 'DEMO')
             ORDER BY OWNER, OBJECT_NAME
             FETCH FIRST 1000 ROWS ONLY
@@ -375,8 +463,7 @@ class DbSrcConnector:
                     "password": base64.b64encode(self.agent_password.encode()).decode(),
                     "action": cmd,
                 }
-                self._send_request(request)
-                response = self._receive_response()
+                response = self._send_and_receive(request)
                 print(f"📋 Legacy access response: {response}")
                 return response
                 
@@ -389,16 +476,36 @@ class DbSrcConnector:
                 "columns": []
             }
 
+    def set_role(self, role_name, role_password):
+        """Execute ALTER SESSION SET ROLE command for ROLE-type ACCP connections.
+        
+        Teacher's requirement: Use ALTER SESSION SET ROLE instead of just SET ROLE
+        This is executed after connecting to USER schema to activate ROLE privileges.
+        
+        Args:
+            role_name: The role name (e.g., 'ACCP_DISCIPLUS_LIVE_R_9921')
+            role_password: The role password received via email (OTP-style)
+        
+        Returns:
+            Response from ALTER SESSION SET ROLE command
+        """
+        set_role_sql = f'ALTER SESSION SET ROLE {role_name} IDENTIFIED BY "{role_password}"'
+        print(f"🔐 Setting ROLE: {role_name}")
+        print(f"▶️ SQL: {set_role_sql}")
+        return self.run_sql(set_role_sql)
+
     def run_sql(self, query):
-        """Execute SQL query through DbSrc agent."""
+        """Execute SQL query through DbSrc agent.
+        
+        CRITICAL: Uses atomic send+receive to prevent buffer contamination.
+        """
         cmd = f"sql.[{query}]"
         request = {
             "password": base64.b64encode(self.agent_password.encode()).decode(),
             "action": cmd,
         }
         print(f"▶️ Running SQL: {query}")
-        self._send_request(request)
-        resp = self._receive_response()
+        resp = self._send_and_receive(request)
 
         if resp.get("err_code") == "0":
             data_field = resp.get("data")
@@ -439,12 +546,17 @@ class DbSrcConnector:
                 "action": action,
             }
             try:
-                self._send_request(request)
-                _ = self._receive_response()
+                _ = self._send_and_receive(request)
             except Exception:
                 pass
-        self.socket.close()
-        self.socket = None
+        
+        # Safe socket cleanup
+        if self.socket is not None:
+            try:
+                self.socket.close()
+            except Exception:
+                pass  # Socket already closed or invalid
+            self.socket = None
         print("👋 Disconnected from DbSrc Agent.")
 
 

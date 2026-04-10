@@ -17,70 +17,115 @@ class DbSrcAgentClient {
     }
 
     // Connect to the agent
-    connectAgent() {
-        return new Promise((resolve, reject) => {
-            this.client = new net.Socket();
-            this.client.connect(this.SERVER_PORT, this.SERVER_ADDRESS, () => {
-                console.log(`Connected to ${this.SERVER_ADDRESS}:${this.SERVER_PORT}`);
+   connectAgent() {
+    return new Promise((resolve, reject) => {
+        this.client = new net.Socket();
 
-                const jsonRequest = JSON.stringify({
-                    password: this.encodePassword(this.PASSWORD),
-                    action: "agent.connect"
-                });
+        let buffer = "";
 
-                this.client.write(jsonRequest + '\n');
-            });
+        const onData = (chunk) => {
+            buffer += chunk.toString("utf8");
 
-            this.client.on('data', (data) => {
-                const response = JSON.parse(data.toString().trim());
-                console.log("Server response (connect):", response);
+            let idx;
+            while ((idx = buffer.indexOf("\n")) !== -1) {
+                const message = buffer.slice(0, idx);
+                buffer = buffer.slice(idx + 1);
 
-                if (response.err_code === "0") {
-                    this.connected = true;
-                    resolve(true);
-                } else {
-                    resolve(false);
+                try {
+                    const response = JSON.parse(message);
+                    console.log("Server response (connect):", response);
+
+                    this.client.off("data", onData);
+
+                    if (response.err_code === "0") {
+                        this.connected = true;
+                        resolve(true);
+                    } else {
+                        resolve(false);
+                    }
+                } catch (e) {
+                    console.error("Invalid JSON during connect:", message);
                 }
-            });
-
-            this.client.on('error', (err) => {
-                console.error('Connection error:', err.message);
-                reject(false);
-            });
-
-            this.client.on('close', () => {
-                console.log("Connection closed.");
-                this.connected = false;
-            });
-        });
-    }
-
-    // Send a message to the agent
-    sendMessage(action) {
-        return new Promise((resolve, reject) => {
-            if (!this.connected) {
-                resolve(JSON.stringify({ err_code: "1", err_msg: "Not connected to the server." }));
-                return;
             }
+        };
 
+        this.client.on("data", onData);
+
+        this.client.on("error", (err) => {
+            this.client.off("data", onData);
+            reject(err);
+        });
+
+        this.client.connect(this.SERVER_PORT, this.SERVER_ADDRESS, () => {
             const jsonRequest = JSON.stringify({
                 password: this.encodePassword(this.PASSWORD),
-                action: action
+                action: "agent.connect"
             });
 
-            this.client.write(jsonRequest + '\n');
-
-            this.client.once('data', (data) => {
-                const response = JSON.parse(data.toString().trim());
-                console.log("Server response (sendMessage):", response);
-                resolve(JSON.stringify(response));
-            });
-
-            this.client.on('error', (err) => {
-                resolve(JSON.stringify({ err_code: "9", err_msg: err.message }));
-            });
+            this.client.write(jsonRequest + "\n");
         });
-    }
+    });
+}
+
+
+   
+   // Send a message to the agent
+sendMessage(action) {
+    return new Promise((resolve) => {
+        if (!this.connected) {
+            resolve(JSON.stringify({
+                err_code: "1",
+                err_msg: "Not connected to the server."
+            }));
+            return;
+        }
+
+        const jsonRequest = JSON.stringify({
+            password: this.encodePassword(this.PASSWORD),
+            action
+        });
+
+        let buffer = "";
+
+        const onData = (chunk) => {
+            buffer += chunk.toString("utf8");
+
+            let idx;
+            while ((idx = buffer.indexOf("\n")) !== -1) {
+                const message = buffer.slice(0, idx);
+                buffer = buffer.slice(idx + 1);
+
+                // 🔑 VERY IMPORTANT
+                this.client.off("data", onData);
+
+                try {
+                    const response = JSON.parse(message);
+                    console.log("Server response:", response);
+                    resolve(JSON.stringify(response));
+                } catch (e) {
+                    resolve(JSON.stringify({
+                        err_code: "99",
+                        err_msg: "Invalid / partial JSON received",
+                        raw_length: message.length
+                    }));
+                }
+            }
+        };
+
+        this.client.on("data", onData);
+
+        this.client.on("error", (err) => {
+            this.client.off("data", onData);
+            resolve(JSON.stringify({
+                err_code: "9",
+                err_msg: err.message
+            }));
+        });
+        this.client.write(jsonRequest + "\n");
+    });
+}
+
+
 
     // Disconnect from the agent
     disconnectAgent() {
@@ -119,7 +164,7 @@ class DbSrcAgentClient {
 module.exports = {DbSrcAgentClient};
 
 
-/*
+
 // Example usage of DbSrcAgentClient full workflow
 
 (async () => {
@@ -219,4 +264,3 @@ SELECT SUM(total) AS total_sum, "OPERATION NAME"
         console.log("Agent disconnected:", isDisconnected);
     }
 })();
-*/
