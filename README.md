@@ -31,7 +31,7 @@ npm install
 Create a `.env` file in the project root:
 
 ```env
-DBSRC_AGENT_HOST=www.compute-mertjiandata.com
+DBSRC_AGENT_HOST= hostname
 DBSRC_AGENT_PORT=9000
 DBSRC_CLIENT_HOST=127.0.0.1
 ```
