@@ -392,42 +392,20 @@ class DbSrcConnector:
                 
                 if resp.get("err_code") == "0":
                     print(f"✅ Connected to ACCP {schema_id} with token")
-                    # Extract schema name from message like "Connected to schema ACCP_DISCIPLUS_LIVE_U_9393"
                     schema_name = self._extract_schema_name(resp.get("err_msg", ""))
                     return {"connected": True, "schema_name": schema_name}
+
+                # Error code 3 = schema-level failure (DB schema locked/unavailable)
+                # No point trying fallback commands — surface the real error
+                if resp.get("err_code") == "3":
+                    raise Exception(f"Schema connection failed: {resp.get('err_msg', 'Unknown schema error')}")
                     
             except Exception as e:
+                if "Schema connection failed" in str(e):
+                    raise
                 print(f"⚠️ Token connection failed: {e}")
         
-        print("🔗 Trying H2M direct connection...")
-        possible_commands = [
-            f"connect.accp.{schema_id}.{username}.{host_ip}",
-            f"connect.accp.{schema_id}.{username}",
-        ]
-        
-        last_error = None
-        for cmd in possible_commands:
-            try:
-                print(f"🔗 Trying: {cmd}")
-                request = {
-                    "password": base64.b64encode(self.agent_password.encode()).decode(),
-                    "action": cmd,
-                }
-                resp = self._send_and_receive(request)
-                print(f"🔗 Response: {resp}")
-                
-                if resp.get("err_code") == "0":
-                    print(f"✅ Connected to ACCP {schema_id} with command: {cmd}")
-                    schema_name = self._extract_schema_name(resp.get("err_msg", ""))
-                    return {"connected": True, "schema_name": schema_name}
-                    
-                last_error = resp.get("err_msg", "Unknown error")
-                
-            except Exception as e:
-                last_error = str(e)
-                continue
-        
-        raise Exception(f"❌ ACCP connection failed. Error: {last_error}")
+        raise Exception(f"❌ ACCP connection failed. No valid token available.")
     
     def _extract_schema_name(self, message):
         """Extract schema name from connection message like 'Connected to schema ACCP_DISCIPLUS_LIVE_U_9393'"""
