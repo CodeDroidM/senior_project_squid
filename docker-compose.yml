@@ -11,9 +11,6 @@ services:
       - PYTHONUNBUFFERED=1
       - DBSRC_AGENT_HOST=www.compute-mertjiandata.com
       - DBSRC_AGENT_PORT=9000
-      - DBSRC_USERNAME=ivan
-      - DBSRC_USER_PASSWORD=Rc3e4745c$4
-      - DBSRC_ACCP_ID=345
       - DBSRC_CLIENT_HOST=127.0.0.1
     volumes:
       - ./server:/app

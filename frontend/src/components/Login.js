@@ -29,7 +29,6 @@ export default function Login({ onLogin, initialStep = 1, initialAccps = null, i
   const [selectedAccp, setSelectedAccp] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [userToken, setUserToken] = useState(null);
   
   const [showRoleDialog, setShowRoleDialog] = useState(false);
   const [rolePassword, setRolePassword] = useState('');
@@ -58,7 +57,6 @@ export default function Login({ onLogin, initialStep = 1, initialAccps = null, i
       }
       
       setAvailableAccps(data.available_accps);
-      setUserToken(data.token);
       setStep(2);
     } catch (e) {
       const errorMsg = e?.response?.data?.detail || e.message || 'User validation failed';
@@ -430,7 +428,7 @@ export default function Login({ onLogin, initialStep = 1, initialAccps = null, i
       <Paper sx={{ p: 4, width: 500, maxWidth: '100%' }} elevation={6}>
         <Box sx={{ textAlign: 'center', mb: 3 }}>
           <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#ffffff', borderRadius: '50%', p: 1.5, mb: 1, boxShadow: '0 4px 20px rgba(156,111,222,0.4)' }}>
-            <Box component="img" src="/squid.svg" alt="SQUID Logo" sx={{ width: 160, height: 160, objectFit: 'contain' }} />
+            <Box component="img" src="/squid.png" alt="SQUID Logo" sx={{ width: 160, height: 160, objectFit: 'contain' }} />
           </Box>
           <Typography variant="h4" gutterBottom fontWeight="bold">
             SQUID

@@ -38,9 +38,6 @@ except ModuleNotFoundError:
 
 DEFAULT_AGENT_HOST = os.environ.get("DBSRC_AGENT_HOST", "www.compute-mertjiandata.com")
 DEFAULT_AGENT_PORT = int(os.environ.get("DBSRC_AGENT_PORT", "9000"))
-DEFAULT_USERNAME = os.environ.get("DBSRC_USERNAME", "ivan")
-DEFAULT_USER_PASSWORD = os.environ.get("DBSRC_USER_PASSWORD", "Rc3e4745c$4")
-DEFAULT_ACCP_ID = os.environ.get("DBSRC_ACCP_ID", "345")
 DEFAULT_HOST_IP = os.environ.get("DBSRC_CLIENT_HOST", "127.0.0.1")
 
 

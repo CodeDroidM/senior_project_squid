@@ -13,9 +13,6 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogContentText,
-  DialogActions,
-  Button,
   Divider,
 } from '@mui/material';
 import { createTheme, ThemeProvider } from '@mui/material/styles';
@@ -229,7 +226,7 @@ function App() {
         addLog('Exported to JSON', 'success');
       } else if (format === 'xml') {
         const sanitizeTag = (name) => {
-          let tag = String(name).replace(/[^a-zA-Z0-9_.\-]/g, '_');
+          let tag = String(name).replace(/[^a-zA-Z0-9_.-]/g, '_');
           if (/^[^a-zA-Z_]/.test(tag)) tag = '_' + tag;
           return tag || '_col';
         };
@@ -439,7 +436,7 @@ function App() {
         <AppBar position="static" elevation={0}>
           <Toolbar>
             <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'rgba(255,255,255,0.12)', borderRadius: '8px', p: 0.4, mr: 1, flexShrink: 0 }}>
-              <Box component="img" src="/squid.svg" alt="SQUID Logo" sx={{ width: 34, height: 34, objectFit: 'contain', display: 'block' }} />
+              <Box component="img" src="/squid.png" alt="SQUID Logo" sx={{ width: 34, height: 34, objectFit: 'contain', display: 'block' }} />
             </Box>
             <Typography variant="body2" sx={{ fontWeight: 700, color: '#d4d4d4', letterSpacing: 0.5 }}>
               SQUID
