@@ -16,13 +16,59 @@ ChartJS.register(
 );
 
 const PieChart = ({ data, config }) => {
-  const { labels: labelColumn, values: valueColumn } = config;
-  
-  const chartLabels = data.map(row => row[labelColumn]);
-  const chartValues = data.map(row => {
-    const value = row[valueColumn];
-    return typeof value === 'string' ? parseFloat(value.replace(/,/g, '')) : value;
+  // Support multiple config shapes: some paths set `labels`/`values`, others set `x` and `y`
+  const labelColumn = config.labels ?? config.x ?? null;
+  // `y` may be an array (['count']) or a single column name
+  const valueColumn = config.values ?? (Array.isArray(config.y) ? config.y[0] : config.y) ?? null;
+
+  // Fallback keys from categoricalCounts transform
+  const fallbackLabelKey = 'category';
+  const fallbackValueKey = 'count';
+
+  const chartLabels = data.map(row => {
+    let v = null;
+    if (labelColumn) v = row[labelColumn];
+    if (v === null || v === undefined) v = row[fallbackLabelKey] ?? null;
+    return v === null || v === undefined ? 'undefined' : String(v);
   });
+
+  const chartValues = data.map(row => {
+    let raw = null;
+    if (valueColumn) raw = row[valueColumn];
+    if (raw === null || raw === undefined) raw = row[fallbackValueKey] ?? null;
+    if (raw === null || raw === undefined) return 0;
+    if (typeof raw === 'number') return raw;
+    if (typeof raw === 'string') {
+      const parsed = parseFloat(raw.replace(/,/g, ''));
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+  });
+
+  // DEBUG: log config + sample rows so we can diagnose 'undefined' legend labels
+  try {
+    // Use console.debug so it's easy to filter in browser devtools
+    console.debug('PieChart debug — config:', config);
+    console.debug('PieChart debug — resolved labelColumn:', labelColumn, 'valueColumn:', valueColumn);
+    console.debug('PieChart debug — sample rows:', data.slice(0, 5));
+    console.debug('PieChart debug — chartLabels sample:', chartLabels.slice(0, 8));
+    console.debug('PieChart debug — chartValues sample:', chartValues.slice(0, 8));
+  } catch (e) {
+    // ignore logging errors
+  }
+
+  // If all labels are 'undefined' or all values are zero, show a friendly message
+  const allLabelsUndefined = chartLabels.length > 0 && chartLabels.every(l => l === 'undefined');
+  const allValuesZero = chartValues.length > 0 && chartValues.every(v => v === 0);
+  if (allLabelsUndefined || allValuesZero) {
+    return (
+      <div style={{ padding: '24px 16px' }}>
+        <div style={{ color: '#9a9a9a', textAlign: 'center' }}>
+          No valid data available for this pie chart (labels or values missing).
+        </div>
+      </div>
+    );
+  }
 
   const COLORS = [
     '#9c6fde', '#64b5f6', '#89d185', '#f48771',

@@ -233,7 +233,7 @@ def profile_dataframe(df, schema_hints: Mapping[str, Mapping[str, Any]] | None =
                 date_series = pd.to_datetime(series, errors="coerce", format=detected_format)
                 date_ratio = float(date_series.notna().mean()) if row_count else 0.0
             else:
-                date_series = pd.to_datetime(series, errors="coerce")
+                date_series = pd.to_datetime(series, errors="coerce", format="mixed")
                 date_ratio = float(date_series.notna().mean()) if row_count else 0.0
 
             if date_ratio > 0.7 or (declared_date_hint and date_ratio > 0.3):

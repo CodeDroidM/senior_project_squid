@@ -486,8 +486,24 @@ const AutoChart = ({ data, config }) => {
     }
 
     const transformed = applyTransform(data, config);
+    // Normalize finalConfig so chart components can rely on `labels` and `values`
+    const finalConfig = { ...transformed.finalConfig };
+    try {
+      if (finalConfig.transformApplied) {
+        // If transform produced x/y meta (like 'category'/'count'), expose them as labels/values
+        if (!finalConfig.labels && finalConfig.x) finalConfig.labels = finalConfig.x;
+        if (!finalConfig.values) {
+          if (Array.isArray(finalConfig.y) && finalConfig.y.length > 0) finalConfig.values = finalConfig.y[0];
+          else if (finalConfig.y) finalConfig.values = finalConfig.y;
+        }
+      }
+    } catch (e) {
+      // ignore normalization errors
+    }
+
     return {
-      ...transformed,
+      rows: transformed.rows,
+      finalConfig,
       hasData: hasValidData
     };
   }, [data, config]);

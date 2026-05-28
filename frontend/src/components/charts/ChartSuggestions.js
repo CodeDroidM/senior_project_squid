@@ -34,10 +34,11 @@ const ChartSuggestions = ({ data, columns, sql, serverSuggestions, onViewChange 
   const [customChartConfig, setCustomChartConfig] = useState(null);
 
   useEffect(() => {
-    if (serverSuggestions && serverSuggestions.length > 0) {
+      if (serverSuggestions && serverSuggestions.length > 0) {
       setSuggestions(serverSuggestions);
       setSelectedChart(serverSuggestions[0]);
       setViewMode('chart');
+      if (onViewChange) onViewChange('chart');
       setChartMode(0);
       setUsingServerSuggestions(true);
       return;
@@ -51,9 +52,11 @@ const ChartSuggestions = ({ data, columns, sql, serverSuggestions, onViewChange 
       if (chartSuggestions.length > 0) {
         setSelectedChart(chartSuggestions[0]);
         setViewMode('chart');
+        if (onViewChange) onViewChange('chart');
         setChartMode(0);
       } else {
         setViewMode('table');
+        if (onViewChange) onViewChange('table');
       }
     } else {
       setSuggestions([]);
@@ -61,11 +64,12 @@ const ChartSuggestions = ({ data, columns, sql, serverSuggestions, onViewChange 
       setViewMode('table');
       setUsingServerSuggestions(false);
     }
-  }, [data, columns, sql, serverSuggestions]);
+  }, [data, columns, sql, serverSuggestions, onViewChange]);
 
   const handleChartSelect = (chart) => {
     setSelectedChart(chart);
     setViewMode('chart');
+    if (onViewChange) onViewChange('chart');
     setChartMode(0);
   };
 

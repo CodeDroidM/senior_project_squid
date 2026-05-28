@@ -96,6 +96,11 @@ function App() {
     setLogs((prev) => [newLog, ...prev]);
   };
 
+  // Ensure the browser tab title shows SQUID (overrides cached index.html title)
+  useEffect(() => {
+    document.title = 'SQUID';
+  }, []);
+
   const handleLogin = async (creds) => {
     setError(null);
     setCredentials(creds);

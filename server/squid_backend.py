@@ -154,25 +154,26 @@ def connect(req: ConnectRequest):
     if not current_username:
         raise HTTPException(status_code=400, detail="No authenticated user found")
     
-    try:
-        result = connector.connect_accp(
-            req.accp_id, 
-            current_username, 
-            host_ip=req.client_host
-        )
-        
-        connection_timestamp = datetime.now()
+    with connector_lock:
+        try:
+            result = connector.connect_accp(
+                req.accp_id, 
+                current_username, 
+                host_ip=req.client_host
+            )
+            
+            connection_timestamp = datetime.now()
 
-        return {
-            "status": "connected", 
-            "username": current_username,
-            "accp_id": req.accp_id,
-            "schema_name": result.get("schema_name"),  # Return connected schema name
-            "expires_in_hours": TOKEN_EXPIRY_HOURS
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"ACCP connection failed: {e}")
+            return {
+                "status": "connected", 
+                "username": current_username,
+                "accp_id": req.accp_id,
+                "schema_name": result.get("schema_name"),
+                "expires_in_hours": TOKEN_EXPIRY_HOURS
+            }
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"ACCP connection failed: {e}")
 
 
 @app.post("/set-role")
@@ -194,7 +195,8 @@ def set_role(req: dict):
         raise HTTPException(status_code=400, detail="role_name and role_password are required")
     
     try:
-        result = c.set_role(role_name, role_password)
+        with connector_lock:
+            result = c.set_role(role_name, role_password)
         
         if result.get("err_code") != "0":
             raise HTTPException(
@@ -224,7 +226,8 @@ def show_access():
         raise HTTPException(status_code=400, detail="No user authenticated")
     
     try:
-        resp = c.show_access(current_username)
+        with connector_lock:
+            resp = c.show_access(current_username)
         return resp
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"show_access failed: {e}")
@@ -287,12 +290,14 @@ def switch_accp(req: ConnectRequest):
             "action": "disconnect.accp",
         }
         try:
-            connector._send_and_receive(disconnect_req)
+            with connector_lock:
+                connector._send_and_receive(disconnect_req)
         except Exception as e:
             print(f"⚠️ ACCP disconnect warning (continuing): {e}")
 
         # 2. Connect to the new ACCP using the existing token
-        result = connector.connect_accp(
+        with connector_lock:
+            result = connector.connect_accp(
             req.accp_id,
             current_username,
             host_ip=req.client_host,
@@ -322,7 +327,8 @@ def session_info():
     # Re-fetch available ACCPs for the current user so the UI can show the selector
     try:
         c = get_connector()
-        accps = c.list_user_accps(current_username)
+        with connector_lock:
+            accps = c.list_user_accps(current_username)
     except Exception as e:
         accps = []
         print(f"⚠️ Could not fetch ACCPs for session-info: {e}")
